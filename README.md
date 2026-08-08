@@ -29,7 +29,26 @@ El backend sigue una arquitectura en capas con inyeccion de dependencias:
 `repositories` (no de Mongo directamente), lo que permite testear la
 logica de negocio sin una base de datos real.
 
-## Backend
+## Correr todo con Docker (recomendado, sin instalar nada local)
+
+Requiere solo tener [Docker Desktop](https://www.docker.com/products/docker-desktop/) instalado.
+
+```bash
+docker compose up --build
+```
+
+Esto levanta tres contenedores:
+- `backend` → http://localhost:8000 (docs interactivas en `/docs`)
+- `frontend` → http://localhost:5173
+- `mongo` → base de datos, persistida en un volumen
+
+Los cambios que hagas en `backend/` y `frontend/` se reflejan en caliente
+(hot reload) porque las carpetas estan montadas dentro de los contenedores.
+
+Para pararlo: `Ctrl+C` y despues `docker compose down` (agregar `-v` si
+tambien queres borrar los datos de Mongo).
+
+## Backend (sin Docker)
 
 ```bash
 cd backend
@@ -51,7 +70,7 @@ MONGO_URI=mongodb://localhost:27017
 MONGO_DB_NAME=proyecto_buttini
 ```
 
-## Frontend
+## Frontend (sin Docker)
 
 ```bash
 cd frontend

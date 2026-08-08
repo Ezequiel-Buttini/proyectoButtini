@@ -5,8 +5,9 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: {
+    host: true,
     proxy: {
-      '/health': 'http://localhost:8000',
+      '/health': process.env.VITE_BACKEND_URL ?? 'http://localhost:8000',
     },
   },
 })
