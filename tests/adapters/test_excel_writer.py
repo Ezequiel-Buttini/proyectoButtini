@@ -76,6 +76,18 @@ def test_writes_header_data_and_total_row_for_a_single_block(tmp_path):
     )
 
 
+def test_writes_ubicacion_and_observacion_from_the_record(tmp_path):
+    report = build_report([_record(ubicacion="Cuadro Nacional", observacion="nota")])
+    path = tmp_path / "output.xlsx"
+
+    OpenpyxlReportWriter().write(report, path)
+
+    wb = openpyxl.load_workbook(path)
+    rows = list(wb.active.iter_rows(values_only=True))
+
+    assert rows[1][-2:] == ("Cuadro Nacional", "nota")
+
+
 def test_writes_grand_total_row_after_all_blocks(tmp_path):
     report = build_report(
         [

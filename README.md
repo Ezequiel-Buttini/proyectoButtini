@@ -13,8 +13,8 @@ app/
     models.py              # dependencias de openpyxl ni de la UI -- se
     reorder.py             # testea con datos en memoria, sin abrir archivos.
   adapters/
-    excel_reader.py        # Lee la hoja "Total" del Excel de entrada.
-    excel_writer.py         # Escribe el Excel ordenado de salida.
+    excel_reader.py        # Lee el Excel .xls de entrada (formato de bloques).
+    excel_writer.py         # Escribe el Excel .xlsx ordenado de salida.
   application/
     generate_report.py     # Caso de uso: orquesta reader -> reorder -> writer.
   ui/
@@ -33,8 +33,9 @@ archivos reales ni levantar la ventana.
 
 ## Instalación
 
-Requiere **Python 3.12** (no usar 3.14: todavía no tiene wheels
-precompilados para varias dependencias en Windows y falla la instalación).
+Requiere Python 3.10+ (probado con 3.12 y 3.14 en Windows). Ninguna
+dependencia (`openpyxl`, `xlrd`, `PySide6`, `pytest`) necesita compilar
+nada nativo, así que no debería haber problemas de wheels.
 
 ```powershell
 cd C:\Programas\ProyectoButtini
@@ -64,18 +65,22 @@ Se abre una ventana con un solo botón: **"Elegir Excel y generar
 reporte"**.
 
 1. Click en el botón.
-2. En el diálogo, elegí el Excel de entrada (debe tener una hoja llamada
-   **"Total"** con las columnas: Fecha de carga, Responsable, Serie, Coche,
-   Litros, Kms Odometro, Kms GPS Carga anterior, Precinto NUEVO, Precinto
-   ANTERIOR).
+2. En el diálogo, elegí el Excel de entrada. Tiene que ser un **`.xls`**
+   (formato Excel 97-2003, el que exporta el sistema viejo) con la forma
+   de "bloques": un encabezado repetido (Fecha de carga, Responsable,
+   Fecha Horario, Horario, Destino, Serie, Coche, Litros, Kms, Kms GPS,
+   Control, Control Anterior, Ubicación, Observacion) seguido de una o
+   más filas de datos y una fila `TOTAL` por cada vehículo.
 3. Al confirmar, la app procesa el archivo y muestra un cartel "Listo"
    con la ruta del archivo generado.
 4. El archivo de salida se guarda **en la misma carpeta que el de
-   entrada**, con el mismo nombre + `_ordenado`. Ej: si elegís
-   `2026-08 Carga Gasoil.xlsx`, se genera
-   `2026-08 Carga Gasoil_ordenado.xlsx` al lado.
+   entrada**, como `.xlsx`, con el mismo nombre + `_ordenado`. Ej: si
+   elegís `combustible_2026-08-07.xls`, se genera
+   `combustible_2026-08-07_ordenado.xlsx` al lado.
 5. Abrí ese `_ordenado.xlsx` y verificá que:
-   - Las filas estén en orden cronológico (fecha/hora ascendente).
+   - Las filas estén en orden cronológico (fecha/hora ascendente) — el
+     archivo de entrada normalmente viene agrupado por vehículo, no por
+     hora, así que el orden va a cambiar bastante respecto al original.
    - Cada carga tenga su propio bloque: encabezado + fila de datos + fila
      `TOTAL` con el ratio km/lt de esa carga.
    - Al final haya una fila `TOTAL GENERAL` con la suma de litros y km
@@ -84,17 +89,25 @@ reporte"**.
 ### Si algo falla
 
 Si el botón tira un error, la app lo muestra completo en un cartel (no
-falla en silencio). Un caso esperado de error: si el Excel elegido no
-tiene una hoja llamada "Total" con esas columnas, la app no va a poder
-procesarlo (por ahora está atado a ese formato específico).
+falla en silencio). Casos esperados de error:
+- El diálogo solo deja elegir `.xls` — si tu archivo es `.xlsx`, no va a
+  aparecer en la lista (todavía no está soportado ese formato para la
+  entrada).
+- Si el archivo no tiene la forma de bloques esperada (encabezados +
+  filas de datos + TOTAL), la app puede no encontrar ningún registro o
+  fallar al leer una fecha.
 
 ## Qué NO hace todavía (fuera de alcance de esta primera etapa)
 
 - No filtra por fecha ni por responsable: procesa el archivo entero de una.
 - No valida el archivo antes de procesarlo más allá de lo que ya cubren
   los tests.
-- Las columnas `Ubicación` y `Observacion` del Excel de salida siempre
-  quedan vacías (esa información no está en el Excel de entrada).
+- Solo acepta `.xls` como entrada (no `.xlsx`) — es el formato en el que
+  llega el archivo real hoy.
+- Las columnas `Fecha Horario`, `Horario` y `Destino` del Excel de
+  entrada se descartan (no hay forma confiable de mantenerlas una vez
+  reordenado todo cronológicamente). `Ubicación` y `Observacion` sí se
+  conservan cuando el archivo de entrada las trae cargadas.
 - No hay mapeos configurables ni histórico guardado: cada corrida es
   independiente.
 

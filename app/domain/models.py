@@ -17,6 +17,8 @@ class FuelLoadRecord:
     kms_gps: float
     control: float
     control_anterior: float
+    ubicacion: str = ""
+    observacion: str = ""
 
 
 @dataclass(frozen=True)

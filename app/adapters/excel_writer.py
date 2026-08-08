@@ -49,8 +49,8 @@ def _data_row(block: ReportBlock) -> list:
         record.kms_gps,
         record.control,
         record.control_anterior,
-        "",
-        "",
+        record.ubicacion,
+        record.observacion,
     ]
 
 
