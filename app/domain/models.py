@@ -6,33 +6,32 @@ from datetime import datetime
 
 @dataclass(frozen=True)
 class FuelLoadRecord:
-    """A single fuel load event, already normalized from whatever source it came from."""
+    """A single fuel load event, exactly as extracted from the source -- raw
+    values only. Consumo / Consumo Lts c/100km are NOT here: they get
+    (re)computed downstream instead of trusting whatever was cached in the
+    source file's formula cells.
+    """
 
     fecha_carga: datetime
+    fecha_puente: datetime
     responsable: str
+    turno: str
     serie: str
     coche: str
     litros: float
-    kms: float
-    kms_gps: float
-    control: float
-    control_anterior: float
-    ubicacion: str = ""
-    observacion: str = ""
+    urea: float | None
+    kms_odometro: float
+    kms_gps_carga_anterior: float
+    precinto_nuevo: float
+    precinto_anterior: float
+    tipo_combustible: str
 
 
 @dataclass(frozen=True)
-class ReportBlock:
-    """One record plus its own subtotal, ready to be rendered as a block in the report."""
+class CleanedRecord:
+    """A FuelLoadRecord plus its freshly computed consumption figures, ready
+    to be written out as one row of the ordered report."""
 
     record: FuelLoadRecord
-    kilometros_por_litro: float
-
-
-@dataclass(frozen=True)
-class ReportTotals:
-    """Grand total row for the whole report."""
-
-    litros: float
-    kms_gps: float
-    kilometros_por_litro: float
+    consumo: float
+    consumo_lts_c_100km: str

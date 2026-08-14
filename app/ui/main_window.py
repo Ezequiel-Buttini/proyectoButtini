@@ -8,7 +8,7 @@ from pathlib import Path
 
 from PySide6.QtWidgets import QFileDialog, QLabel, QMessageBox, QPushButton, QVBoxLayout, QWidget
 
-from app.adapters.excel_reader import XlrdFuelLoadReader
+from app.adapters.excel_reader import OpenpyxlFuelLoadReader
 from app.adapters.excel_writer import OpenpyxlReportWriter
 from app.application.generate_report import GenerateOrderedReport
 
@@ -38,7 +38,7 @@ class MainWindow(QWidget):
 
     def _on_pick_file(self) -> None:
         input_path_str, _ = QFileDialog.getOpenFileName(
-            self, "Elegir Excel de entrada", "", "Excel 97-2003 (*.xls)"
+            self, "Elegir Excel de entrada", "", "Excel (*.xlsx)"
         )
         if not input_path_str:
             return
@@ -46,7 +46,7 @@ class MainWindow(QWidget):
         input_path = Path(input_path_str)
         output_path = _default_output_path(input_path)
         use_case = GenerateOrderedReport(
-            reader=XlrdFuelLoadReader(), writer=OpenpyxlReportWriter()
+            reader=OpenpyxlFuelLoadReader(), writer=OpenpyxlReportWriter()
         )
 
         try:

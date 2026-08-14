@@ -1,95 +1,99 @@
-"""Reads fuel load records from the real input: a 'block report' workbook
-(repeated header + one or more data rows + a TOTAL row, per vehicle), the
-same shape the old tool used to produce as its own output. One data row = one
-FuelLoadRecord; header/TOTAL/TOTAL GENERAL/title/blank rows are all skipped.
+"""Reads raw fuel load records from the 'Total' sheet of the source workbook
+(2026-08 Carga Gasoil.xlsx-shaped). Never reads the source's own Consumo /
+Consumo Lts c/100km cells -- those are formula results we don't trust and
+recompute fresh in the domain layer instead.
 """
 
-from collections.abc import Iterable, Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
-import xlrd
+import openpyxl
 
 from app.domain.models import FuelLoadRecord
 
-# Column positions in the block report (0-indexed). Fecha Horario, Horario,
-# Destino, Ubicacion and Observacion exist in the source but only the first
-# three are intentionally dropped -- there's no reliable source data for them
-# once records get resorted chronologically.
-_COL_FECHA_CARGA = 0
-_COL_RESPONSABLE = 1
-_COL_SERIE = 5
-_COL_COCHE = 6
-_COL_LITROS = 7
-_COL_KMS = 8
-_COL_KMS_GPS = 9
-_COL_CONTROL = 10
-_COL_CONTROL_ANTERIOR = 11
-_COL_UBICACION = 12
-_COL_OBSERVACION = 13
+SHEET_NAME = "Total"
 
-_FECHA_CARGA_FORMAT = "%Y-%m-%d %H:%M:%S"
+# Real headers have stray whitespace (e.g. "Kms Odometro "), so columns are
+# matched by stripped/lowercased text rather than position.
+_COLUMN_FECHA_CARGA = "fecha de carga"
+_COLUMN_FECHA_PUENTE = "fecha puente"
+_COLUMN_RESPONSABLE = "responsable"
+_COLUMN_TURNO = "turno"
+_COLUMN_SERIE = "serie"
+_COLUMN_COCHE = "coche"
+_COLUMN_LITROS = "litros"
+_COLUMN_UREA = "urea"
+_COLUMN_KMS_ODOMETRO = "kms odometro"
+_COLUMN_KMS_GPS = "kms gps carga anterior"
+_COLUMN_PRECINTO_NUEVO = "precinto nuevo"
+_COLUMN_PRECINTO_ANTERIOR = "precinto anterior"
+_COLUMN_TIPO_COMBUSTIBLE = "tipo de combustible"
 
 
 class FuelLoadReader(Protocol):
     def read(self, path: Path) -> list[FuelLoadRecord]: ...
 
 
+def _normalize(header: object) -> str:
+    return str(header).strip().lower()
+
+
 def _as_float(value: object) -> float:
-    return 0.0 if value in (None, "") else float(value)
+    return float(value) if value is not None else 0.0
+
+
+def _as_optional_float(value: object) -> float | None:
+    return None if value is None else float(value)
 
 
 def _as_text(value: object) -> str:
-    if value in (None, ""):
+    if value is None or value == "":
         return ""
     if isinstance(value, float) and value.is_integer():
         return str(int(value))
     return str(value)
 
 
-def _try_parse_fecha_carga(value: object) -> datetime | None:
-    """A row is a data row exactly when its first cell is a real timestamp --
-    title/header/blank/TOTAL rows all fail to parse and get skipped."""
-    try:
-        return datetime.strptime(str(value).strip(), _FECHA_CARGA_FORMAT)
-    except ValueError:
-        return None
+def _parse_fecha_carga(value: object) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    return datetime.strptime(str(value).strip(), "%Y-%m-%d %H:%M:%S")
 
 
-def _cell(row: Sequence, index: int) -> object:
-    return row[index] if index < len(row) else ""
-
-
-def parse_block_report_rows(rows: Iterable[Sequence]) -> list[FuelLoadRecord]:
-    records = []
-    for row in rows:
-        fecha_carga = _try_parse_fecha_carga(_cell(row, _COL_FECHA_CARGA))
-        if fecha_carga is None:
-            continue
-        records.append(
-            FuelLoadRecord(
-                fecha_carga=fecha_carga,
-                responsable=_as_text(_cell(row, _COL_RESPONSABLE)),
-                serie=_as_text(_cell(row, _COL_SERIE)),
-                coche=_as_text(_cell(row, _COL_COCHE)),
-                litros=_as_float(_cell(row, _COL_LITROS)),
-                kms=_as_float(_cell(row, _COL_KMS)),
-                kms_gps=_as_float(_cell(row, _COL_KMS_GPS)),
-                control=_as_float(_cell(row, _COL_CONTROL)),
-                control_anterior=_as_float(_cell(row, _COL_CONTROL_ANTERIOR)),
-                ubicacion=_as_text(_cell(row, _COL_UBICACION)),
-                observacion=_as_text(_cell(row, _COL_OBSERVACION)),
-            )
-        )
-    return records
-
-
-class XlrdFuelLoadReader:
-    """Concrete FuelLoadReader for legacy .xls block reports, backed by xlrd."""
+class OpenpyxlFuelLoadReader:
+    """Concrete FuelLoadReader backed by openpyxl."""
 
     def read(self, path: Path) -> list[FuelLoadRecord]:
-        book = xlrd.open_workbook(str(path), ignore_workbook_corruption=True)
-        sheet = book.sheet_by_index(0)
-        rows = (sheet.row_values(row_index) for row_index in range(sheet.nrows))
-        return parse_block_report_rows(rows)
+        workbook = openpyxl.load_workbook(path, data_only=True)
+        sheet = workbook[SHEET_NAME]
+
+        rows = sheet.iter_rows(values_only=True)
+        header = [_normalize(cell) for cell in next(rows)]
+        column_index = {name: header.index(name) for name in header}
+
+        def cell(row, column_name):
+            return row[column_index[column_name]]
+
+        records = []
+        for row in rows:
+            if cell(row, _COLUMN_FECHA_CARGA) is None:
+                continue
+            records.append(
+                FuelLoadRecord(
+                    fecha_carga=_parse_fecha_carga(cell(row, _COLUMN_FECHA_CARGA)),
+                    fecha_puente=cell(row, _COLUMN_FECHA_PUENTE),
+                    responsable=_as_text(cell(row, _COLUMN_RESPONSABLE)),
+                    turno=_as_text(cell(row, _COLUMN_TURNO)),
+                    serie=_as_text(cell(row, _COLUMN_SERIE)),
+                    coche=_as_text(cell(row, _COLUMN_COCHE)),
+                    litros=_as_float(cell(row, _COLUMN_LITROS)),
+                    urea=_as_optional_float(cell(row, _COLUMN_UREA)),
+                    kms_odometro=_as_float(cell(row, _COLUMN_KMS_ODOMETRO)),
+                    kms_gps_carga_anterior=_as_float(cell(row, _COLUMN_KMS_GPS)),
+                    precinto_nuevo=_as_float(cell(row, _COLUMN_PRECINTO_NUEVO)),
+                    precinto_anterior=_as_float(cell(row, _COLUMN_PRECINTO_ANTERIOR)),
+                    tipo_combustible=_as_text(cell(row, _COLUMN_TIPO_COMBUSTIBLE)),
+                )
+            )
+        return records

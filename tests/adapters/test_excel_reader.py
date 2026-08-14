@@ -1,143 +1,160 @@
-"""Tests for the block-report parser: header/data/TOTAL/TOTAL GENERAL rows,
-exactly as xlrd hands them back (all numbers as float, blanks as "").
+"""Tests for the 'Total' sheet reader: reads raw fields only, never trusts
+the source file's own Consumo / Consumo Lts c/100km formula cells (those
+get recomputed in the domain layer instead).
 """
 
 from datetime import datetime
 
-from app.adapters.excel_reader import parse_block_report_rows
+import openpyxl
+import pytest
 
-HEADER_ROW = [
+from app.adapters.excel_reader import OpenpyxlFuelLoadReader
+
+HEADERS = [
     "Fecha de carga",
+    "Fecha puente",
     "Responsable",
-    "Fecha Horario",
-    "Horario",
-    "Destino",
+    "Turno",
     "Serie",
     "Coche",
     "Litros",
-    "Kms",
-    "Kms GPS",
-    "Control",
-    "Control Anterior",
-    "Ubicación",
-    "Observacion",
+    "UREA",
+    "Kms Odometro ",  # real header has a trailing space
+    "Kms GPS Carga anterior",
+    "Precinto NUEVO",
+    "Precinto ANTERIOR",
+    "TIPO DE COMBUSTIBLE",
+    "CONSUMO",
+    "CONSUMO LTS C/100KM)",
 ]
 
 
-def _data_row(
-    fecha_carga="2026-08-07 20:55:48",
+def _row(
+    fecha_carga="2026-08-01 04:04:23",
+    fecha_puente=None,
     responsable="023 - MARTINEZ JOSE LUIS",
-    serie=1644.0,
-    coche=1.0,
-    litros=136.0,
-    kms=0.0,
-    kms_gps=410.0,
-    control=0.0,
-    control_anterior=0.0,
-    ubicacion="",
-    observacion="",
+    turno="M",
+    serie=1461,
+    coche=76,
+    litros=109,
+    urea=None,
+    kms_odometro=0,
+    kms_gps=447,
+    precinto_nuevo=0,
+    precinto_anterior=0,
+    tipo_combustible="INFINIA",
 ):
     return [
         fecha_carga,
+        fecha_puente if fecha_puente is not None else datetime(2026, 8, 1),
         responsable,
-        "2026-08-07",
-        "23:00",
-        "SOL DE MAYO",
+        turno,
         serie,
         coche,
         litros,
-        kms,
+        urea,
+        kms_odometro,
         kms_gps,
-        control,
-        control_anterior,
-        ubicacion,
-        observacion,
+        precinto_nuevo,
+        precinto_anterior,
+        tipo_combustible,
+        999,  # CONSUMO in the source -- must be ignored, not read
+        "should be ignored too",  # CONSUMO LTS C/100KM) -- must be ignored
     ]
 
 
-def _total_row(coche=1.0, litros=136.0, kms_gps=410.0, ratio="3.01 km/lt"):
-    return [" ", " ", " ", " ", "TOTAL", " ", coche, litros, 0.0, kms_gps, "0.00 km/lt", ratio, "", ""]
+def _build_workbook(tmp_path, rows, sheet_name="Total", extra_sheet_first=True):
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    if extra_sheet_first:
+        wb.create_sheet("Parque Movil")  # the real workbook has 5 other sheets
+    sheet = wb.create_sheet(sheet_name)
+    sheet.append(HEADERS)
+    for row in rows:
+        sheet.append(row)
+    path = tmp_path / "input_sample.xlsx"
+    wb.save(path)
+    return path
 
 
-def _blank_row():
-    return [""] * len(HEADER_ROW)
+def test_reads_all_raw_fields_from_the_total_sheet(tmp_path):
+    path = _build_workbook(tmp_path, [_row()])
+    reader = OpenpyxlFuelLoadReader()
 
-
-def test_extracts_one_record_per_data_row_ignoring_headers_and_totals():
-    rows = [
-        ["DETALLE DE CARGA DE COMBUSTIBLES entre el 2026-08-07 y el 2026-08-07"],
-        _blank_row(),
-        _blank_row(),
-        HEADER_ROW,
-        _data_row(),
-        _total_row(),
-    ]
-
-    records = parse_block_report_rows(rows)
+    records = reader.read(path)
 
     assert len(records) == 1
     record = records[0]
-    assert record.fecha_carga == datetime(2026, 8, 7, 20, 55, 48)
+    assert record.fecha_carga == datetime(2026, 8, 1, 4, 4, 23)
+    assert record.fecha_puente == datetime(2026, 8, 1)
     assert record.responsable == "023 - MARTINEZ JOSE LUIS"
-    assert record.serie == "1644"
-    assert record.coche == "1"
-    assert record.litros == 136
-    assert record.kms == 0
-    assert record.kms_gps == 410
-    assert record.control == 0
-    assert record.control_anterior == 0
+    assert record.turno == "M"
+    assert record.serie == "1461"
+    assert record.coche == "76"
+    assert record.litros == 109
+    assert record.urea is None
+    assert record.kms_odometro == 0
+    assert record.kms_gps_carga_anterior == 447
+    assert record.precinto_nuevo == 0
+    assert record.precinto_anterior == 0
+    assert record.tipo_combustible == "INFINIA"
 
 
-def test_extracts_multiple_blocks_and_skips_grand_total_row():
-    rows = [
-        HEADER_ROW,
-        _data_row(coche=1.0, litros=136.0),
-        _total_row(coche=1.0, litros=136.0),
-        HEADER_ROW,
-        _data_row(coche=2.0, litros=103.0),
-        _total_row(coche=2.0, litros=103.0),
-        [" ", " ", " ", " ", "TOTAL GENERAL", " ", " ", 239.0, 0.0, 842.0, "0.00 km/lt", "3.52 km/lt", "", ""],
-    ]
+def test_keeps_non_numeric_serie_and_coche_as_text(tmp_path):
+    path = _build_workbook(tmp_path, [_row(serie="TURISMO", coche="Taller")])
+    reader = OpenpyxlFuelLoadReader()
 
-    records = parse_block_report_rows(rows)
-
-    assert [r.coche for r in records] == ["1", "2"]
-
-
-def test_keeps_non_numeric_serie_and_coche_as_text():
-    rows = [HEADER_ROW, _data_row(serie="TURISMO", coche="Taller")]
-
-    records = parse_block_report_rows(rows)
+    records = reader.read(path)
 
     assert records[0].serie == "TURISMO"
     assert records[0].coche == "Taller"
 
 
-def test_blank_serie_becomes_empty_text():
-    rows = [HEADER_ROW, _data_row(serie="")]
+def test_blank_serie_becomes_empty_text_not_literal_none(tmp_path):
+    path = _build_workbook(tmp_path, [_row(serie=None, coche="Taller")])
+    reader = OpenpyxlFuelLoadReader()
 
-    records = parse_block_report_rows(rows)
+    records = reader.read(path)
 
     assert records[0].serie == ""
 
 
-def test_passes_through_ubicacion_and_observacion_when_present():
-    rows = [HEADER_ROW, _data_row(ubicacion="Cuadro Nacional", observacion="")]
+def test_blank_tipo_combustible_becomes_empty_text(tmp_path):
+    path = _build_workbook(tmp_path, [_row(tipo_combustible=None)])
+    reader = OpenpyxlFuelLoadReader()
 
-    records = parse_block_report_rows(rows)
+    records = reader.read(path)
 
-    assert records[0].ubicacion == "Cuadro Nacional"
-    assert records[0].observacion == ""
+    assert records[0].tipo_combustible == ""
 
 
-def test_a_vehicle_can_load_fuel_more_than_once_in_the_same_block():
-    rows = [
-        HEADER_ROW,
-        _data_row(fecha_carga="2026-08-07 04:43:07", coche=11.0),
-        _data_row(fecha_carga="2026-08-07 15:53:00", coche=11.0),
-        _total_row(coche=11.0),
-    ]
+def test_formats_float_serie_without_spurious_decimal(tmp_path):
+    path = _build_workbook(tmp_path, [_row(serie=400301.0)])
+    reader = OpenpyxlFuelLoadReader()
 
-    records = parse_block_report_rows(rows)
+    records = reader.read(path)
 
-    assert len(records) == 2
+    assert records[0].serie == "400301"
+
+
+def test_ignores_extra_unnamed_trailing_columns(tmp_path):
+    """Real file has one stray value in an unnamed 16th column -- must not
+    break reading or leak into any field."""
+    path = _build_workbook(tmp_path, [_row()])
+    wb = openpyxl.load_workbook(path)
+    wb["Total"].cell(row=2, column=16, value=421)
+    wb.save(path)
+    reader = OpenpyxlFuelLoadReader()
+
+    records = reader.read(path)
+
+    assert len(records) == 1
+
+
+def test_reads_the_total_sheet_by_name_not_by_position(tmp_path):
+    path = _build_workbook(tmp_path, [_row()], extra_sheet_first=True)
+    reader = OpenpyxlFuelLoadReader()
+
+    records = reader.read(path)
+
+    assert len(records) == 1

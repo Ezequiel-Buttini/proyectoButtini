@@ -8,14 +8,18 @@ from app.domain.models import FuelLoadRecord
 def _record(**overrides):
     defaults = dict(
         fecha_carga=datetime(2026, 8, 7, 12, 0, 0),
+        fecha_puente=datetime(2026, 8, 7),
         responsable="R",
+        turno="M",
         serie="1644",
         coche="1",
         litros=136,
-        kms=0,
-        kms_gps=410,
-        control=0,
-        control_anterior=0,
+        urea=None,
+        kms_odometro=0,
+        kms_gps_carga_anterior=410,
+        precinto_nuevo=0,
+        precinto_anterior=0,
+        tipo_combustible="INFINIA",
     )
     defaults.update(overrides)
     return FuelLoadRecord(**defaults)
@@ -37,11 +41,11 @@ class FakeWriter:
     """Test double: captures what it was asked to write instead of touching disk."""
 
     def __init__(self):
-        self.received_report = None
+        self.received_rows = None
         self.received_path = None
 
-    def write(self, report, path):
-        self.received_report = report
+    def write(self, rows, path):
+        self.received_rows = rows
         self.received_path = path
 
 
@@ -58,7 +62,7 @@ def test_generate_ordered_report_reads_reorders_and_writes():
 
     assert reader.received_path == input_path
     assert writer.received_path == output_path
-    assert [block.record.responsable for block in writer.received_report.blocks] == [
+    assert [row.record.responsable for row in writer.received_rows] == [
         "early",
         "late",
     ]

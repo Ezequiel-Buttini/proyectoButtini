@@ -3,118 +3,105 @@ from datetime import datetime
 import openpyxl
 
 from app.adapters.excel_writer import OpenpyxlReportWriter
-from app.domain.models import FuelLoadRecord
-from app.domain.reorder import build_report
+from app.domain.models import CleanedRecord, FuelLoadRecord
 
 EXPECTED_HEADER = [
     "Fecha de carga",
+    "Fecha puente",
     "Responsable",
+    "Turno",
     "Serie",
     "Coche",
     "Litros",
-    "Kms",
-    "Kms GPS",
-    "Control",
-    "Control Anterior",
-    "Ubicación",
-    "Observacion",
+    "UREA",
+    "Kms Odometro",
+    "Kms GPS Carga anterior",
+    "Precinto Nuevo",
+    "Precinto Anterior",
+    "Tipo de Combustible",
+    "Consumo",
+    "Consumo Lts c/100km",
 ]
 
 
 def _record(**overrides):
     defaults = dict(
-        fecha_carga=datetime(2026, 8, 7, 20, 55, 48),
+        fecha_carga=datetime(2026, 8, 1, 4, 4, 23),
+        fecha_puente=datetime(2026, 8, 1),
         responsable="023 - MARTINEZ JOSE LUIS",
-        serie="1644",
-        coche="1",
-        litros=136,
-        kms=0,
-        kms_gps=410,
-        control=0,
-        control_anterior=0,
+        turno="M",
+        serie="1461",
+        coche="76",
+        litros=109,
+        urea=None,
+        kms_odometro=0,
+        kms_gps_carga_anterior=447,
+        precinto_nuevo=0,
+        precinto_anterior=0,
+        tipo_combustible="INFINIA",
     )
     defaults.update(overrides)
     return FuelLoadRecord(**defaults)
 
 
-def test_writes_header_data_and_total_row_for_a_single_block(tmp_path):
-    report = build_report([_record()])
-    path = tmp_path / "output.xlsx"
-
-    OpenpyxlReportWriter().write(report, path)
-
-    wb = openpyxl.load_workbook(path)
-    sheet = wb.active
-    rows = list(sheet.iter_rows(values_only=True))
-
-    assert rows[0] == tuple(EXPECTED_HEADER)
-    assert rows[1] == (
-        "2026-08-07 20:55:48",
-        "023 - MARTINEZ JOSE LUIS",
-        "1644",
-        "1",
-        136,
-        0,
-        410,
-        0,
-        0,
-        None,
-        None,
-    )
-    assert rows[2] == (
-        None,
-        "TOTAL",
-        "1644",
-        "1",
-        136,
-        0,
-        410,
-        "0.00 km/lt",
-        "3.01 km/lt",
-        None,
-        None,
+def _cleaned_row(record=None, consumo=24.38, consumo_lts_c_100km="||" * 24):
+    return CleanedRecord(
+        record=record or _record(),
+        consumo=consumo,
+        consumo_lts_c_100km=consumo_lts_c_100km,
     )
 
 
-def test_writes_ubicacion_and_observacion_from_the_record(tmp_path):
-    report = build_report([_record(ubicacion="Cuadro Nacional", observacion="nota")])
+def test_writes_header_and_one_row_per_record(tmp_path):
     path = tmp_path / "output.xlsx"
 
-    OpenpyxlReportWriter().write(report, path)
+    OpenpyxlReportWriter().write([_cleaned_row()], path)
 
     wb = openpyxl.load_workbook(path)
     rows = list(wb.active.iter_rows(values_only=True))
 
-    assert rows[1][-2:] == ("Cuadro Nacional", "nota")
-
-
-def test_writes_grand_total_row_after_all_blocks(tmp_path):
-    report = build_report(
-        [
-            _record(coche="1", litros=136, kms_gps=410),
-            _record(coche="2", litros=103, kms_gps=432),
-        ]
+    assert rows[0] == tuple(EXPECTED_HEADER)
+    assert rows[1] == (
+        "2026-08-01 04:04:23",
+        datetime(2026, 8, 1),
+        "023 - MARTINEZ JOSE LUIS",
+        "M",
+        "1461",
+        "76",
+        109,
+        None,
+        0,
+        447,
+        0,
+        0,
+        "INFINIA",
+        24.38,
+        "||" * 24,
     )
+
+
+def test_writes_urea_value_when_present(tmp_path):
     path = tmp_path / "output.xlsx"
 
-    OpenpyxlReportWriter().write(report, path)
+    OpenpyxlReportWriter().write([_cleaned_row(record=_record(urea=15))], path)
 
     wb = openpyxl.load_workbook(path)
-    sheet = wb.active
-    rows = list(sheet.iter_rows(values_only=True))
+    rows = list(wb.active.iter_rows(values_only=True))
 
-    # header + (data + total) * 2 blocks + grand total = 1 + 4 + 1 = 6 rows
-    assert len(rows) == 6
-    assert rows[-1] == (
-        None,
-        "TOTAL GENERAL",
-        None,
-        None,
-        239,
-        0,
-        842,
-        "0.00 km/lt",
-        "3.52 km/lt",
-        None,
-        None,
-    )
+    assert rows[1][7] == 15
+
+
+def test_writes_no_total_rows_just_one_row_per_record(tmp_path):
+    path = tmp_path / "output.xlsx"
+    rows_in = [
+        _cleaned_row(record=_record(coche="1")),
+        _cleaned_row(record=_record(coche="2")),
+    ]
+
+    OpenpyxlReportWriter().write(rows_in, path)
+
+    wb = openpyxl.load_workbook(path)
+    rows = list(wb.active.iter_rows(values_only=True))
+
+    # header + 2 data rows, nothing else
+    assert len(rows) == 3
