@@ -42,14 +42,14 @@ def test_sorts_across_different_days():
     assert [row.record.responsable for row in rows] == ["day1", "day7"]
 
 
-def test_consumo_is_litros_over_kms_gps_times_100():
+def test_consumo_is_litros_over_kms_gps_times_100_rounded_to_2_decimals():
     record = _record(litros=148, kms_gps_carga_anterior=488)
 
     rows = build_report([record])
 
     # matches the real Excel formula =IFERROR((Litros/KmsGPS)*100,0), verified
-    # against the real file: 148/488*100 = 30.327868852459016
-    assert rows[0].consumo == 148 / 488 * 100
+    # against the real file: 148/488*100 = 30.327868852459016 -> 30.33
+    assert rows[0].consumo == 30.33
 
 
 def test_consumo_is_zero_when_kms_gps_is_zero():

@@ -9,11 +9,11 @@ from app.domain.models import CleanedRecord, FuelLoadRecord
 
 def _consumo(litros: float, kms_gps_carga_anterior: float) -> float:
     """Reproduces the source file's own formula:
-    =IFERROR((Litros/KmsGPS)*100, 0) -- verified against the real data,
-    246/246 non-zero-KmsGPS rows match this exactly."""
+    =IFERROR((Litros/KmsGPS)*100, 0), rounded to 2 decimals -- verified
+    against real rows from both source files."""
     if kms_gps_carga_anterior == 0:
         return 0.0
-    return litros / kms_gps_carga_anterior * 100
+    return round(litros / kms_gps_carga_anterior * 100, 2)
 
 
 def _consumo_lts_c_100km(consumo: float) -> str:
